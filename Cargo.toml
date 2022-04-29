@@ -1,5 +1,5 @@
 [package]
-name = "evg-task-profiler_py"
+name = "evg-task-profiler-py"
 version = "0.1.0"
 edition = "2021"
 
