@@ -6,9 +6,90 @@ use regex::Regex;
 /// A Python module implemented in Rust.
 #[pymodule]
 fn evg_task_profiler_py(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<State>()?;
+    m.add_class::<TaskProfiler>()?;
     m.add_class::<TimingInfo>()?;
     Ok(())
+}
+
+#[pyclass]
+struct TaskProfiler {
+    parser_state: ParserState,
+    events: Vec<TimingInfo>,
+    index: usize,
+    total_time: i64,
+}
+
+#[pymethods]
+impl TaskProfiler {
+    #[new]
+    pub fn new() -> Self {
+        Self {
+            parser_state: ParserState::Start,
+            events: vec![],
+            index: 0,
+            total_time: 0,
+        }
+    }
+
+    pub fn process_line(&mut self, line: &str) {
+        if let Some(dt) = parse_timestamp(line) {
+            if let Some(event) = parse_start_event(line) {
+                self.start_event(&event.name, &event.step, &dt.to_rfc3339());
+            } else if let Some(_caps) = parse_end_event(line) {
+                self.end_event(&dt.to_rfc3339());
+            }
+        }
+    }
+
+    pub fn get_events(&self) -> Vec<TimingInfo> {
+        self.events.clone()
+    }
+
+    fn start_event(&mut self, name: &str, step: &str, dt: &str) {
+        let dt = DateTime::parse_from_rfc3339(dt).unwrap();
+        if let ParserState::InStep {
+            name,
+            step,
+            start_time,
+        } = &self.parser_state
+        {
+            let duration = dt - *start_time;
+            self.events.push(TimingInfo {
+                name: name.to_string(),
+                step: step.to_string(),
+                index: self.index,
+                duration: duration.num_milliseconds(),
+            });
+            self.index += 1;
+            self.total_time += duration.num_milliseconds();
+        }
+        self.parser_state = ParserState::InStep {
+            name: name.to_string(),
+            step: step.to_string(),
+            start_time: dt,
+        };
+    }
+
+    fn end_event(&mut self, dt: &str) {
+        let dt = DateTime::parse_from_rfc3339(dt).unwrap();
+        if let ParserState::InStep {
+            name,
+            step,
+            start_time,
+        } = &self.parser_state
+        {
+            let duration = dt - *start_time;
+            self.events.push(TimingInfo {
+                name: name.to_string(),
+                step: step.to_string(),
+                index: self.index,
+                duration: duration.num_milliseconds(),
+            });
+            self.index += 1;
+            self.total_time += duration.num_milliseconds();
+            self.parser_state = ParserState::Start;
+        }
+    }
 }
 
 struct Event {
@@ -81,83 +162,3 @@ enum ParserState {
     },
 }
 
-#[pyclass]
-struct State {
-    parser_state: ParserState,
-    pub events: Vec<TimingInfo>,
-    index: usize,
-    total_time: i64,
-}
-
-#[pymethods]
-impl State {
-    #[new]
-    pub fn new() -> Self {
-        Self {
-            parser_state: ParserState::Start,
-            events: vec![],
-            index: 0,
-            total_time: 0,
-        }
-    }
-
-    pub fn process_line(&mut self, line: &str) {
-        if let Some(dt) = parse_timestamp(line) {
-            if let Some(event) = parse_start_event(line) {
-                self.start_event(&event.name, &event.step, &dt.to_rfc3339());
-            } else if let Some(_caps) = parse_end_event(line) {
-                self.end_event(&dt.to_rfc3339());
-            }
-        }
-    }
-
-    pub fn get_events(&self) -> Vec<TimingInfo> {
-        self.events.clone()
-    }
-
-    fn start_event(&mut self, name: &str, step: &str, dt: &str) {
-        let dt = DateTime::parse_from_rfc3339(dt).unwrap();
-        if let ParserState::InStep {
-            name,
-            step,
-            start_time,
-        } = &self.parser_state
-        {
-            let duration = dt - *start_time;
-            self.events.push(TimingInfo {
-                name: name.to_string(),
-                step: step.to_string(),
-                index: self.index,
-                duration: duration.num_milliseconds(),
-            });
-            self.index += 1;
-            self.total_time += duration.num_milliseconds();
-        }
-        self.parser_state = ParserState::InStep {
-            name: name.to_string(),
-            step: step.to_string(),
-            start_time: dt,
-        };
-    }
-
-    fn end_event(&mut self, dt: &str) {
-        let dt = DateTime::parse_from_rfc3339(dt).unwrap();
-        if let ParserState::InStep {
-            name,
-            step,
-            start_time,
-        } = &self.parser_state
-        {
-            let duration = dt - *start_time;
-            self.events.push(TimingInfo {
-                name: name.to_string(),
-                step: step.to_string(),
-                index: self.index,
-                duration: duration.num_milliseconds(),
-            });
-            self.index += 1;
-            self.total_time += duration.num_milliseconds();
-            self.parser_state = ParserState::Start;
-        }
-    }
-}
